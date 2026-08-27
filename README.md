@@ -31,11 +31,20 @@ long-sequence FlashAttention forward port.
 
 不包含:MiniMax H3 权重(请从官方渠道获取)、任何平台凭据、内部部署粘合层。
 
+## License
+
+- 本仓库自研代码(kernels 中除 flash-attention-gfx936 外的全部、launcher/、validation/、benchmarks/)以 **Apache-2.0** 发布(根目录 LICENSE)。
+- `kernels/flash-attention-gfx936/` 派生自 [Tri Dao FlashAttention](https://github.com/Dao-AILab/flash-attention),遵循其 **BSD-3-Clause**,原 LICENSE/AUTHORS 保留在该目录内。
+- **不包含** ComfyUI(GPL-3.0,请自行安装;launcher 在运行时对其打补丁)与 MiniMax H3 权重(受 MiniMax H3 Community License 约束,含地域限制——美国/欧盟/英国/韩国不在授权区,请自行核对后从[官方渠道](https://huggingface.co/MiniMaxAI/MiniMax-H3)获取)。
+
+## 环境
+
+实测环境:2×Hygon DCU gfx936(64 GB HBM)、DTK 26.04(dcc 25.10.0 / clang 17)、PyTorch 2.9.0、HIP 6.3。
+
 ## 状态
 
-- [x] 源码从算力节点备份(h3-kernel-campaign-src-20260827.tar.gz)
-- [x] 论文大纲与文献定位(paper/OUTLINE.md)
-- [ ] 源码脱敏整理进本仓库
-- [ ] 论文初稿
-- [ ] LICENSE 定稿(建议 Apache-2.0,flash fork 目录保留 BSD-3)
-- [ ] GitHub 仓库创建与首推
+- [x] 源码脱敏整理进本仓库
+- [x] 论文全文初稿(paper/draft.md,署名 dengxuan)
+- [x] LICENSE(Apache-2.0 + flash 目录 BSD-3)
+- [x] GitHub 仓库创建与推送
+- [ ] 论文 [TODO: verify] 清单消项、LaTeX 化、arXiv 投稿

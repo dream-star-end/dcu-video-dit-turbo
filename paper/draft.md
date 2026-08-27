@@ -51,7 +51,7 @@ Image-to-video (I2V) and first-last-frame (FLF) conditioning are both in the ser
 
 ### 2.2 Hygon DCU gfx936 and the DTK stack
 
-All measurements use a public HPC cloud node with two Hygon DCU accelerators (gfx936, 64 GB HBM each). The software stack is the vendor DTK toolchain with a HIP/PyTorch serving graph. [TODO: verify] DTK, HIP, and PyTorch versions; they were not recorded in the outline or campaign notes used for this draft.
+All measurements use a public HPC cloud node with two Hygon DCU accelerators (gfx936, 64 GB HBM each). The software stack is the vendor DTK 26.04 toolchain (dcc 25.10.0, clang 17) with PyTorch 2.9.0 on HIP 6.3.
 
 gfx936 is not a drop-in CUDA device. FlashAttention [4, 5] does not ship a supported gfx936 backend in the upstream tree we started from. INT8 GEMM epilogues that are correct for one M dimension are not automatically correct for another. Allocator behavior under a 362-frame 1344×768 VAE decode is different from the 608×352 path that had already been in production. These are the reasons a substitution gate has to live in the launcher rather than in a one-off kernel patch.
 
