@@ -1,8 +1,8 @@
 # Exactness-Gated Kernel Substitution: Deploying and Accelerating a 15-Second Audio-Video Diffusion Transformer on Dual Hygon DCUs
 
-**[AUTHOR NAME]**  
-**[AFFILIATION]**  
-[TODO: verify] author name and affiliation.
+**dengxuan**  
+**Independent Researcher**  
+
 
 ## Abstract
 
