@@ -1,5 +1,7 @@
 # dcu-video-dit-turbo
 
+**English** | [简体中文](README.zh-CN.md)
+
 **Exactness-gated kernel substitution for long audio-video Diffusion Transformers on Hygon DCU (gfx936).**
 
 This repository contains the kernels, launcher gating layer, validation harnesses, and benchmarks behind the technical report *Exactness-Gated Kernel Substitution: Deploying and Accelerating a 15-Second Audio-Video Diffusion Transformer on Dual Hygon DCUs* ([paper/draft.md](paper/draft.md), LaTeX source in [paper/latex/](paper/latex/)).
@@ -75,7 +77,3 @@ This project is an independent research effort and is not affiliated with or end
   note   = {Technical report, https://github.com/dream-star-end/dcu-video-dit-turbo}
 }
 ```
-
-## 中文简介
-
-本仓库开源了在国产海光 DCU(gfx936)双卡上部署并加速 MiniMax H3 级音视频扩散 Transformer 的全套内核、门控启动层、验证脚本与基准:15 秒 608×352 成片(含原生立体声)端到端约 116 秒(单卡基线 9.1×),15 秒 1344×768 约 24 分钟(回退路径 6.5×)。核心方法是"逐位精确门控的内核替换":每个算术替换要么逐位等价、要么误差在已审计包络内、要么显式过媒体质量门,配合形状白名单、审计哈希与自动回退。上方 `examples/` 目录含多场景实拍风格示例视频,技术报告见 `paper/`。
