@@ -48,4 +48,5 @@ long-sequence FlashAttention forward port.
 - [x] LICENSE(Apache-2.0 + flash 目录 BSD-3)
 - [x] GitHub 仓库创建与推送
 - [x] 论文 TODO 清单消项(引用经 arXiv 官方页核对)
-- [ ] LaTeX 化、arXiv 投稿
+- [x] LaTeX 化(paper/latex/main.tex,单文件 arXiv 格式;本机无 TeX 编译器,已做语法级自查未实际编译)
+- [ ] arXiv 投稿(需作者本人 arXiv 账号)
