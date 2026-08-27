@@ -1,0 +1,4 @@
+[submodule "csrc/cutlass"]
+	path = csrc/cutlass
+	url = http://10.0.54.20/dcutoolkit/mathlibs/cutlass_3.2.1.git
+    branch = compiler_with_hipcc

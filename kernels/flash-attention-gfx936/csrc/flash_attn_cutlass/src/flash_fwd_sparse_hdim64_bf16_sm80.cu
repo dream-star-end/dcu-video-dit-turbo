@@ -1,0 +1,24 @@
+// Copyright (c) 2024, Tri Dao.
+// Splitting the different head dimensions to different files to speed up compilation.
+// This file is auto-generated. See "generate_kernels.py"
+// #include "namespace_config.h"
+#include "flash_fwd_sparse_launch_template.h"
+
+// namespace FLASH_NAMESPACE {
+
+// template<>
+// void run_mha_fwd_sparse_<cutlass::bfloat16_t, 64, false>(Flash_fwd_params_sparse &params, cudaStream_t stream) {
+//     run_mha_fwd_sparse_hdim64<cutlass::bfloat16_t, false>(params, stream);
+// }
+
+template<>
+void run_mha_fwd_sparse_sla_<cutlass::bfloat16_t, 64>(Flash_fwd_params_sparse &params, cudaStream_t stream) {
+    run_mha_fwd_sparse_sla_hdim64<cutlass::bfloat16_t>(params, stream);
+}
+
+// template<>
+// void run_mha_fwd_sparse_sla_fp8_<cutlass::float_e5m2_t, 64>(Flash_fwd_params_sparse &params, cudaStream_t stream) {
+//     run_mha_fwd_sparse_sla_hdim64_fp8<cutlass::float_e5m2_t>(params, stream);
+// }
+
+// } // namespace FLASH_NAMESPACE

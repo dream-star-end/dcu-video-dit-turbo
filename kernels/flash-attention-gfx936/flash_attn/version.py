@@ -1,0 +1,7 @@
+version = '2.8.3'
+git_hash = 'Unknown'
+git_branch = 'None'
+abi = 'abi1'
+dtk = '2604'
+torch_version = '2.9'
+hcu_version = '2.8.3+das.opt1.dtk2604'

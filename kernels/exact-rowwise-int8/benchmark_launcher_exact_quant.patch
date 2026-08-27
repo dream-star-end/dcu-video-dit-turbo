@@ -1,0 +1,132 @@
+--- /dev/fd/11	2026-08-12 06:15:26
++++ /tmp/h3_exact_quant/benchmark_launcher_exact_quant.py	2026-08-12 06:15:07
+@@ -9,10 +9,12 @@
+ 
+ import logging
+ import importlib.util
++import atexit
+ import os
+ import runpy
+ import signal
+ import sys
++from collections import Counter
+ 
+ COMFY_ROOT = os.environ.get("H3_COMFY_ROOT", "/path/to/ComfyUI")
+ sys.path.insert(0, COMFY_ROOT)
+@@ -87,7 +89,105 @@
+ _epilogue = None
+ _empty_bias_cache: dict[tuple[torch.device, torch.dtype], torch.Tensor] = {}
+ 
++# Experimental, strictly gated gfx936 rowwise quantizer.  Loading is eager on
++# purpose: when explicitly enabled, a missing/incompatible DSO must abort the
++# launcher rather than silently changing the benchmark back to eager.
++_exact_quantizer_enabled = os.environ.get("H3_INT8_EXACT_QUANTIZER", "1") == "1"
++_exact_quantizer_so = os.environ.get(
++    "H3_INT8_EXACT_QUANTIZER_SO",
++    "kernels/exact-rowwise-int8/build/h3_exact_rowwise_int8.so",
++)
++_exact_quantizer = None
++_exact_quantizer_hits = 0
++_exact_quantizer_fallbacks = Counter()
++_EXACT_QUANTIZER_M = 11819
++_EXACT_QUANTIZER_K = frozenset((5376, 7168, 14336))
+ 
++
++def _load_exact_quantizer():
++    global _exact_quantizer
++    if _exact_quantizer is not None:
++        return _exact_quantizer
++    spec = importlib.util.spec_from_file_location(
++        "h3_exact_rowwise_int8", _exact_quantizer_so
++    )
++    if spec is None or spec.loader is None:
++        raise RuntimeError(
++            f"Cannot load required H3 exact INT8 quantizer from {_exact_quantizer_so}"
++        )
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    if not hasattr(module, "quantize_int8_rowwise"):
++        raise RuntimeError(
++            f"H3 exact INT8 quantizer DSO has no quantize_int8_rowwise symbol: {_exact_quantizer_so}"
++        )
++    _exact_quantizer = module
++    return module
++
++
++def _exact_quantizer_gate(x: torch.Tensor, stochastic_rounding: int) -> tuple[bool, str]:
++    if not _exact_quantizer_enabled:
++        return False, "disabled"
++    if stochastic_rounding != 0:
++        return False, "stochastic_rounding"
++    if x.dtype != torch.bfloat16:
++        return False, "dtype"
++    if not x.is_cuda:
++        return False, "device"
++    if not x.is_contiguous():
++        return False, "noncontiguous"
++    if x.dim() != 2 or x.shape[0] != _EXACT_QUANTIZER_M:
++        return False, "M"
++    if x.shape[1] not in _EXACT_QUANTIZER_K:
++        return False, "K"
++    arch = torch.cuda.get_device_properties(x.device).gcnArchName.split(":", 1)[0]
++    if arch != "gfx936":
++        return False, "arch"
++    return True, "eligible"
++
++
++def _quantize_activation(x: torch.Tensor, stochastic_rounding: int = 0):
++    global _exact_quantizer_hits
++    eligible, reason = _exact_quantizer_gate(x, stochastic_rounding)
++    if eligible:
++        _exact_quantizer_hits += 1
++        if _exact_quantizer_hits == 1 or _exact_quantizer_hits % 500 == 0:
++            logging.warning(
++                "H3 exact INT8 quantizer hits=%d fallbacks=%d",
++                _exact_quantizer_hits,
++                sum(_exact_quantizer_fallbacks.values()),
++            )
++        return _exact_quantizer.quantize_int8_rowwise(x)
++
++    _exact_quantizer_fallbacks[reason] += 1
++    if _exact_quantizer_fallbacks[reason] == 1:
++        logging.warning(
++            "H3 exact INT8 quantizer fallback reason=%s shape=%s dtype=%s contiguous=%s",
++            reason,
++            tuple(x.shape),
++            x.dtype,
++            x.is_contiguous(),
++        )
++    return _q.quantize_int8_rowwise(
++        x, stochastic_rounding=stochastic_rounding
++    )
++
++
++def _log_exact_quantizer_counts():
++    logging.warning(
++        "H3 exact INT8 quantizer final hits=%d fallbacks=%d reasons=%s",
++        _exact_quantizer_hits,
++        sum(_exact_quantizer_fallbacks.values()),
++        dict(sorted(_exact_quantizer_fallbacks.items())),
++    )
++
++
++if _exact_quantizer_enabled:
++    _load_exact_quantizer()  # Hard-fail at process startup if the DSO is unusable.
++    logging.warning("H3 exact INT8 quantizer loaded: %s", _exact_quantizer_so)
++atexit.register(_log_exact_quantizer_counts)
++
++
+ def _load_epilogue():
+     global _epilogue
+     if _epilogue is not None:
+@@ -150,7 +250,9 @@
+ 
+     orig_shape = x.shape
+     x_2d = x.reshape(-1, x.shape[-1])
+-    x_8, x_scale = _q.quantize_int8_rowwise(x_2d)
++    # INT8 linear currently requests deterministic quantization.  Keep the
++    # stochastic value explicit so the DSO gate cannot accidentally broaden.
++    x_8, x_scale = _quantize_activation(x_2d, stochastic_rounding=0)
+ 
+     # The only intentional change from comfy-kitchen 0.2.26 eager.int8_linear:
+     # pass the transpose view rather than allocating weight.T.contiguous().

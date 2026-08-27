@@ -1,0 +1,9 @@
+- [x] Keep service and system libraries unchanged.
+- [x] Compile only for gfx936 with strict floating-point flags.
+- [x] Validate random inputs at every production shape.
+- [x] Validate full-size all-zero/tiny scale behavior.
+- [x] Validate full-size finite extremes.
+- [x] Validate full-size round-to-even boundaries.
+- [x] Run paired, interleaved HIP-event timing.
+- [x] Convert per-call delta using K5376 x2000, K7168 x1000, K14336 x1000.
+- [x] Prepare a gated candidate integration only after both gates pass.

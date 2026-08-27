@@ -1,0 +1,213 @@
+--- benchmark_launcher_v10_exact_quant.py
++++ benchmark_launcher_v11_exact_quant_vec4.py
+@@ -2,7 +2,9 @@
+ 
+ The candidate combines the verified no-copy INT8 weight transpose path with a
+ scratch-built HIP epilogue that performs the exact eager FP32 scale ordering and
+-BF16 rounding in one kernel.  It does not modify the installed runtime.
++BF16 rounding in one kernel.  An optional four-output-per-thread epilogue keeps
++the same FP32 operation order and BF16 rounding while reducing launch work.  It
++does not modify the installed runtime.
+ 
+ The optional FlashAttention path is restricted to the exact MiniMax H3
+ inference contract. Unsupported shapes, masks, dtypes, layouts, GQA, training,
+@@ -97,6 +99,17 @@
+     "kernels/int8-epilogue/build/h3_hip_epilogue.so",
+ )
+ _epilogue = None
++_vec4_epilogue_enabled = os.environ.get("H3_INT8_EPILOGUE_VEC4", "0") == "1"
++_vec4_epilogue_so = os.environ.get(
++    "H3_INT8_EPILOGUE_VEC4_SO",
++    "kernels/int8-epilogue-vec4/build/"
++    "h3_exact_epilogue_vec4.so",
++)
++_vec4_epilogue = None
++_vec4_epilogue_hits = 0
++_vec4_epilogue_fallbacks = Counter()
++_VEC4_EPILOGUE_M = 11819
++_VEC4_EPILOGUE_N = frozenset((5376, 21504, 28672))
+ _empty_bias_cache: dict[tuple[torch.device, torch.dtype], torch.Tensor] = {}
+ _unpadded_m_hits = 0
+ _prepacked_weight_count = 0
+@@ -816,9 +829,120 @@
+     module = importlib.util.module_from_spec(spec)
+     spec.loader.exec_module(module)
+     _epilogue = module
++    return module
++
++
++def _load_vec4_epilogue():
++    """Load the required candidate DSO; never silently benchmark without it."""
++    global _vec4_epilogue
++    if _vec4_epilogue is not None:
++        return _vec4_epilogue
++    spec = importlib.util.spec_from_file_location(
++        "h3_exact_epilogue_vec4", _vec4_epilogue_so
++    )
++    if spec is None or spec.loader is None:
++        raise RuntimeError(
++            f"Cannot load required H3 exact vec4 epilogue from {_vec4_epilogue_so}"
++        )
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    if not hasattr(module, "epilogue"):
++        raise RuntimeError(
++            "H3 exact vec4 epilogue DSO lacks epilogue: "
++            f"{_vec4_epilogue_so}"
++        )
++    _vec4_epilogue = module
+     return module
++
++
++def _vec4_epilogue_gate(
++    accumulator: torch.Tensor,
++    row_scale: torch.Tensor,
++    col_scale: torch.Tensor,
++    bias: torch.Tensor | None,
++    out_dtype: torch.dtype,
++) -> tuple[bool, str]:
++    if not _vec4_epilogue_enabled:
++        return False, "disabled"
++    if bias is not None:
++        return False, "bias"
++    if out_dtype != torch.bfloat16:
++        return False, "out_dtype"
++    if accumulator.dtype != torch.int32:
++        return False, "acc_dtype"
++    if row_scale.dtype != torch.float32:
++        return False, "row_scale_dtype"
++    if col_scale.dtype != torch.float32:
++        return False, "col_scale_dtype"
++    if not accumulator.is_cuda or not row_scale.is_cuda or not col_scale.is_cuda:
++        return False, "device"
++    if not (
++        accumulator.device == row_scale.device == col_scale.device
++    ):
++        return False, "device_mismatch"
++    if not accumulator.is_contiguous():
++        return False, "acc_noncontiguous"
++    if not row_scale.is_contiguous():
++        return False, "row_scale_noncontiguous"
++    if not col_scale.is_contiguous():
++        return False, "col_scale_noncontiguous"
++    if accumulator.dim() != 2 or accumulator.shape[0] != _VEC4_EPILOGUE_M:
++        return False, "M"
++    if accumulator.shape[1] not in _VEC4_EPILOGUE_N:
++        return False, "N"
++    if row_scale.dim() != 1 or row_scale.numel() != accumulator.shape[0]:
++        return False, "row_scale_shape"
++    if col_scale.dim() != 1 or col_scale.numel() != accumulator.shape[1]:
++        return False, "col_scale_shape"
++    if not _is_gfx936(accumulator):
++        return False, "arch"
++    return True, "eligible"
+ 
+ 
++def _record_vec4_fallback(
++    reason: str,
++    accumulator: torch.Tensor,
++    bias: torch.Tensor | None,
++    out_dtype: torch.dtype,
++) -> None:
++    _vec4_epilogue_fallbacks[reason] += 1
++    if _vec4_epilogue_fallbacks[reason] == 1:
++        logging.warning(
++            "H3 exact vec4 epilogue fallback reason=%s shape=%s dtype=%s "
++            "contiguous=%s bias=%s out_dtype=%s",
++            reason,
++            tuple(accumulator.shape),
++            accumulator.dtype,
++            accumulator.is_contiguous(),
++            bias is not None,
++            out_dtype,
++        )
++
++
++def _log_vec4_epilogue_counts():
++    logging.warning(
++        "H3 exact vec4 epilogue final hits=%d fallbacks=%d reasons=%s",
++        _vec4_epilogue_hits,
++        sum(_vec4_epilogue_fallbacks.values()),
++        dict(sorted(_vec4_epilogue_fallbacks.items())),
++    )
++
++
++if _vec4_epilogue_enabled:
++    if not _epilogue_enabled:
++        raise RuntimeError(
++            "H3_INT8_EPILOGUE_VEC4=1 requires H3_INT8_EPILOGUE=1 so every "
++            "ineligible call can fall back to the existing exact epilogue"
++        )
++    _load_vec4_epilogue()
++    logging.warning(
++        "H3 exact vec4 epilogue loaded: %s contract=gfx936-M11819-"
++        "N5376,21504,28672-int32-fp32-biasless-bf16",
++        _vec4_epilogue_so,
++    )
++atexit.register(_log_vec4_epilogue_counts)
++
++
+ def _empty_bias(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+     key = (device, dtype)
+     value = _empty_bias_cache.get(key)
+@@ -878,24 +1002,49 @@
+     result = _int8_matmul_h3(x_8, weight.T)
+ 
+     if _epilogue_enabled and out_dtype == torch.bfloat16:
++        global _vec4_epilogue_hits
+         fused_weight_scale = weight_scale.reshape(-1)
+         if fused_weight_scale.numel() == 1:
+             fused_weight_scale = fused_weight_scale.expand(result.shape[1]).contiguous()
+         else:
+             fused_weight_scale = fused_weight_scale.contiguous()
+-        fused_bias = (
+-            _empty_bias(result.device, out_dtype)
+-            if bias is None
+-            else bias.to(device=result.device).reshape(-1).contiguous()
+-        )
+-        if fused_bias.dtype not in (torch.bfloat16, torch.float32):
+-            fused_bias = fused_bias.to(torch.bfloat16)
+-        result = _load_epilogue().epilogue(
++        fused_row_scale = x_scale.reshape(-1).contiguous()
++        vec4_eligible, vec4_reason = _vec4_epilogue_gate(
+             result,
+-            x_scale.reshape(-1).contiguous(),
++            fused_row_scale,
+             fused_weight_scale,
+-            fused_bias,
++            bias,
++            out_dtype,
+         )
++        if vec4_eligible:
++            _vec4_epilogue_hits += 1
++            if _vec4_epilogue_hits == 1 or _vec4_epilogue_hits % 500 == 0:
++                logging.warning(
++                    "H3 exact vec4 epilogue hits=%d fallbacks=%d",
++                    _vec4_epilogue_hits,
++                    sum(_vec4_epilogue_fallbacks.values()),
++                )
++            result = _vec4_epilogue.epilogue(
++                result,
++                fused_row_scale,
++                fused_weight_scale,
++            )
++        else:
++            if _vec4_epilogue_enabled:
++                _record_vec4_fallback(vec4_reason, result, bias, out_dtype)
++            fused_bias = (
++                _empty_bias(result.device, out_dtype)
++                if bias is None
++                else bias.to(device=result.device).reshape(-1).contiguous()
++            )
++            if fused_bias.dtype not in (torch.bfloat16, torch.float32):
++                fused_bias = fused_bias.to(torch.bfloat16)
++            result = _load_epilogue().epilogue(
++                result,
++                fused_row_scale,
++                fused_weight_scale,
++                fused_bias,
++            )
+     else:
+         m, n = result.shape
+         chunk_size = max(1, min(m, 256 * 1024 * 1024 // (n * 4)))
+

@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE-related
+.idea/
+
+# Dev
+venv
+
+# benchmarks/
+*.log
+test_results/*.csv
+# tests/
+
+csrc/*/*.hip
+csrc/*/*hip.h
+csrc/*/*hip.cuh
+csrc/*/*hip.cpp
+csrc/flash_attn/src/*.hip
+csrc/flash_attn/src/*hip.h
+csrc/flash_attn/*hip.cpp
