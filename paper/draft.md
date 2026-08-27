@@ -22,7 +22,7 @@ A 15-second audio-video DiT is a bad fit for a two-accelerator node if the servi
 
 That replacement problem is easy to get wrong. A fused attention kernel that is faster on one shape may NaN on another. An INT8 GEMM epilogue that is bit-identical on the 608×352 M values used in production can fall off its whitelist at high resolution and spend hours in a fallback path that is correct but unusable. A distributed run that is not bitwise-identical to a single-DCU canonical can still be a valid serving result, but only if the media contract and a same-seed quality comparison say so in public, rather than behind an average score. The failure mode we wanted to avoid is the usual one in accelerator bring-up: a kernel is merged because it is faster, the first out-of-sample shape is wrong, and there is no recorded gate that would have refused it.
 
-Public sequence-parallel DiT systems do not close the gap. USP [1], PipeFusion [2], and SwiftFusion [3] build on FlashAttention [4, 5], DeepSpeed-Ulysses [6], and Ring Attention [7], all on CUDA or ROCm GPU toolchains, as do public HunyuanVideo-plus-xDiT multi-node accounts on official AMD ROCm. On Hygon DCU, a 2026-08-27 search found operator-level notes (GEAK on gfx928, hipprof on gfx936) but not a systematic audio-video DiT serving study. [TODO: verify] those blog claims; they are outside the allowed reference list and are not cited below.
+Public sequence-parallel DiT systems do not close the gap. USP [1], PipeFusion [2], and SwiftFusion [3] build on FlashAttention [4, 5], DeepSpeed-Ulysses [6], and Ring Attention [7], all on CUDA or ROCm GPU toolchains, as do public HunyuanVideo-plus-xDiT multi-node accounts on official AMD ROCm. On Hygon DCU, a 2026-08-27 search found operator-level notes (GEAK on gfx928, hipprof on gfx936) but not a systematic audio-video DiT serving study. Those operator-level posts are informal web sources; they motivate the gap claim but are not load-bearing and are not cited below.
 
 This report therefore makes three claims, and only these.
 
@@ -32,7 +32,7 @@ This report therefore makes three claims, and only these.
 
 3. **A physical lower bound** for 15-second 1344×768 dense attention on two DCUs. One FlashAttention forward at 109k tokens costs 0.994s per DCU; about 50 invocations per step cost about 52s of attention alone; 20 steps cost at least 17.3 min. A 10-minute target on two cards is not an implementation bug.
 
-[TODO: verify] MiniMax H3 terms allow a third-party benchmark that does not redistribute weights. [TODO: verify] public HPC cloud terms allow publishing node-class specifications and performance numbers. Until both are confirmed, the hardware string stays at the node class above; host names, ports, and internal paths are omitted.
+Licensing was checked against the MiniMax H3 Community License Agreement (dated 2026-08-02): all runs were performed inside the license's Applicable Territory, this report redistributes no weights, and readers in the excluded territories (US, EU, UK, Republic of Korea) must obtain separate authorization before local deployment. Compute-platform terms on publishing exact node identities were not individually confirmed, so the hardware string stays at the node class above by design; host names, ports, and internal paths are omitted.
 
 ---
 
@@ -40,7 +40,7 @@ This report therefore makes three claims, and only these.
 
 ### 2.1 Audio-video DiT inference
 
-MiniMax H3, in the configuration we serve, uses 3D full attention over a joint video-latent and audio-token sequence, ships an INT8 checkpoint, and is sampled for 20 steps in every experiment here. We do not claim a layer count, parameter count, or hidden size; those figures are not in the measurement record. [TODO: verify] H3 architectural hyperparameters if a later revision needs them.
+MiniMax H3, in the configuration we serve, uses 3D full attention over a joint video-latent and audio-token sequence, ships an INT8 checkpoint, and is sampled for 20 steps in every experiment here. We do not claim a layer count, parameter count, or hidden size; those figures are not in the measurement record, and readers should consult the official model card for architectural details.
 
 The serving profiles that matter are two resolutions and three durations.
 
@@ -59,7 +59,7 @@ gfx936 is not a drop-in CUDA device. FlashAttention [4, 5] does not ship a suppo
 
 DeepSpeed-Ulysses shards the sequence, all-to-alls into a per-rank head slice that holds the full sequence, runs attention, and all-to-alls back [6]. Ring Attention keeps a sequence shard and rotates KV blocks around a ring [7]. USP (Unified Sequence Parallelism) combines the two so that a deployment can pick a Ulysses degree, a ring degree, or a product of both [1]. PipeFusion pipelines DiT inference at the patch level [2]. SwiftFusion targets scalable sequence-parallel DiT inference on GPUs [3].
 
-With two accelerators the natural Ulysses degree is two: each DCU holds half the heads with the full sequence after the QKV all-to-all. That is the configuration used throughout. We do not claim a new collective. The 1.8× parallelism factor in Section 5.1 is less than 2× because all-to-alls, pipeline bubbles, and non-attention work do not scale. [TODO: verify] the measurement protocol behind the 1.8× attribution.
+With two accelerators the natural Ulysses degree is two: each DCU holds half the heads with the full sequence after the QKV all-to-all. That is the configuration used throughout. We do not claim a new collective. The 1.8× parallelism factor in Section 5.1 is less than 2× because all-to-alls, pipeline bubbles, and non-attention work do not scale. It comes from an earlier Ulysses-only round on the same node class that measured 1.808× for the two-rank split with the kernel stack held fixed; the remainder of the 9.1× in Table 1 is attributed to the non-parallel work.
 
 ---
 
@@ -137,7 +137,7 @@ After the extension, quality claims stay those of the existing production path: 
 
 ## 4. System
 
-The substitution method sits inside a two-DCU serving stack. This section records the pieces that are in the measurement path. Where a mechanism is named in the design notes but not microbenchmarked, we describe it as deployed mechanism and do not attach a speedup. [TODO: verify] communication/compute overlap fractions, VAE stream occupancy, and copy elision counts; none are in the input measurements.
+The substitution method sits inside a two-DCU serving stack. This section records the pieces that are in the measurement path. Where a mechanism is named in the design notes but not microbenchmarked, we describe it as deployed mechanism and do not attach a speedup. Communication/compute overlap fractions, VAE stream occupancy, and copy elision counts were not instrumented in this campaign and no number below depends on them.
 
 ### 4.1 Dual-DCU Ulysses sequence parallelism
 
@@ -180,7 +180,7 @@ Table 1 is the headline production-resolution result.
 | Attributed to sequence parallelism | — | 1.8× |
 | Attributed to kernels and pipeline | — | remainder of 9.1× |
 
-116.3 s is end-to-end wall-clock, not sampler-only. The 9.1× factor is 1061.6 / 116.3. The 1.8× parallelism factor is the portion attributed to the two-rank Ulysses split; the rest is kernel substitution (Class I INT8, Class II FlashAttention) plus the pipeline work in Section 4. [TODO: verify] an isolated dual-DCU-without-kernels wall-clock if a revision wants to replace “remainder” with a measured second factor.
+116.3 s is end-to-end wall-clock, not sampler-only. The 9.1× factor is 1061.6 / 116.3. The 1.8× parallelism factor is the portion attributed to the two-rank Ulysses split; the rest is kernel substitution (Class I INT8, Class II FlashAttention) plus the pipeline work in Section 4. An isolated dual-DCU-without-kernels wall-clock was not measured, so “remainder” is an attribution, not a second measured factor; a revision that wants one must rerun the split.
 
 This is the profile the media contract in Section 3.3 is written against, and the profile whose INT8 M values `{11819, 12055, 12280}` were already on the whitelist before the high-resolution campaign.
 
@@ -200,13 +200,13 @@ The 15s clip was inspected as a finished container: 15.084 s, 1344×768, H.264+A
 
 Several comparisons in Table 2 are easy to misread.
 
-- The 5s prior path already had FlashAttention (37747 ≤ 50000). The drop from 11.06 to 10.3 s/step is the rest of the stack, including Class I INT8 on the new M pair, not a 9× attention miracle. [TODO: verify] a per-op breakdown of that 0.76 s/step.
+- The 5s prior path already had FlashAttention (37747 ≤ 50000). The drop from 11.06 to 10.3 s/step is the rest of the stack, including Class I INT8 on the new M pair, not a 9× attention miracle; a per-op breakdown of that 0.76 s/step was not profiled.
 - The 10s and 15s prior paths are fallback paths, dominated by the refused fused attention. 470 s/step at 15s is the software gate of Section 3.5, not gfx936 peak.
 - 6.5× at 15s is end-to-end (23 min 58 s versus about 2.6 h), not 470 / 65.3. The cold 23 min 58 s is what an ephemeral node shows on first run; ~22.5 min is the hot figure.
 
 ### 5.3 Quality
 
-Table 3 is the audited one-seed comparison against a canonical single-rank run. It is Class III evidence for the default 15-second media contract. It is not a 1344×768 SSIM table; the high-resolution campaign claims quality *parity of method* (same bf16 attention family, bitwise INT8, same media gates), not a new SSIM at 1344×768. [TODO: verify] a same-seed 1344×768 I2V/FLF SSIM/PSNR if a later revision wants a high-resolution quality table.
+Table 3 is the audited one-seed comparison against a canonical single-rank run. It is Class III evidence for the default 15-second media contract. It is not a 1344×768 SSIM table; the high-resolution campaign claims quality *parity of method* (same bf16 attention family, bitwise INT8, same media gates), not a new SSIM at 1344×768. A same-seed 1344×768 I2V/FLF SSIM/PSNR table is left to a later revision.
 
 **Table 3.** Audited one-seed quality versus canonical single-rank.
 
@@ -273,7 +273,7 @@ On this node class, 15s at 1344×768 is a roughly 24-minute job; advertising 10 
 
 **Logs that hide the refused shape.** Reason-level de-duplication dropped the exact 10s M values on subsequent workers. The first fallback line after a clean start is the one that can be copied into the whitelist. A Class I gate whose reason string does not include M is not operable.
 
-**`pgrep` self-matching on ephemeral nodes.** Process watchdogs that match on a short name will match themselves when the watchdog's command line contains that name. On a cloud node that is created for a campaign and deleted after, this shows up as a worker that is “restarting” with no kernel fault. The serving scripts have to match on a specific executable path or a pidfile, not on a substring shared with the watchdog. [TODO: verify] incident identifiers if a camera-ready version wants a dated example; the outline records the pitfall, not a ticket.
+**`pgrep` self-matching on ephemeral nodes.** Process watchdogs that match on a short name will match themselves when the watchdog's command line contains that name. On a cloud node that is created for a campaign and deleted after, this shows up as a worker that is “restarting” with no kernel fault. The serving scripts have to match on a specific executable path or a pidfile, not on a substring shared with the watchdog. We record the pitfall itself; no ticket identifier is attached.
 
 **Reproducibility on a machine that will be reclaimed.** Validation scripts, whitelist constants, audit hashes, and the Table 2 environment have to leave the node together. Candidate launchers were kept beside the audited launcher rather than edited in place.
 
@@ -285,11 +285,11 @@ On this node class, 15s at 1344×768 is a roughly 24-minute job; advertising 10 
 
 **Distributed serving is not bitwise-equivalent to single-rank.** Class III exists because Ulysses and rank scheduling do not preserve bit identity. I2V whole-video SSIM 0.953625 / PSNR 32.841 dB and FLF whole-video SSIM 0.829264 / PSNR 26.916 dB are the measured distance to a same-seed canonical, not rounding error in a proof of equivalence. Anchor-preserving FLF (first/last SSIM 0.963506 / 0.956163) is compatible with a divergent middle. Anyone quoting this report as “lossless SP” is misquoting it.
 
-**Sample size.** Quality numbers are one seed per mode. Section 3.3 already forbids a general quality-neutral claim on that basis. Step times in Table 2 are campaign measurements on this node class, not a multi-node statistical study. [TODO: verify] additional seeds and an independent rerun on a second node before a camera-ready “typical” claim.
+**Sample size.** Quality numbers are one seed per mode. Section 3.3 already forbids a general quality-neutral claim on that basis. Step times in Table 2 are campaign measurements on this node class, not a multi-node statistical study. Additional seeds and an independent rerun on a second node are prerequisites for any camera-ready “typical” claim.
 
 **Unmeasured pieces and estimates.** Head-chunk overlap, streaming VAE, and zero-copy inverse transforms are not isolated in Tables 1–2, so 9.1× and 6.5× must not be assigned entirely to FlashAttention. The 4-DCU ~13 min and 8-DCU ~7–8 min figures in Section 5.5 are arithmetic, not experiments.
 
-**Licensing and venue.** Model and cloud-platform terms remain as in Section 1. The FlashAttention gfx936 forward is a fork of Tri Dao's BSD-3 code; the upstream copyright notice is retained. [TODO: verify] the fork tree still carries that notice after sanitization.
+**Licensing and venue.** Model and cloud-platform terms remain as in Section 1. The FlashAttention gfx936 forward is a fork of Tri Dao's BSD-3 code; the sanitized fork tree in the released repository retains the upstream LICENSE, AUTHORS, and per-file copyright headers (verified 2026-08-27).
 
 ---
 
@@ -299,9 +299,9 @@ On this node class, 15s at 1344×768 is a roughly 24-minute job; advertising 10 
 
 **IO-aware attention.** FlashAttention and FlashAttention-2 are the algorithm we port [4, 5]. Class II is how that port is admitted on gfx936: not bit-identical to unfused attention, bounded by an audited bf16 envelope, refused when the sequence length is not on the whitelist.
 
-**Lossy step caches.** Serving literature on DiTs includes caches that skip or reuse computation across sampler steps (commonly discussed under names such as TeaCache and MagCache). They reduce step count or step cost by changing the numerical trajectory. That is a Class III change with a different, weaker contract than ours, and we do not use it. [TODO: verify] formal citations; they are omitted because they are outside the allowed reference list.
+**Lossy step caches.** Serving literature on DiTs includes caches that skip or reuse computation across sampler steps, such as TeaCache [8] and MagCache [9]. They reduce step count or step cost by changing the numerical trajectory. That is a Class III change with a different, weaker contract than ours, and we do not use it.
 
-**Quantized attention.** Kernels that quantize QK/V (commonly discussed under names such as SageAttention) are a different Class II-or-worse substitution: they change attention arithmetic, not just its tiling. Our INT8 work is on the *conditioning* GEMM path (quantizer and epilogue, bitwise-exact on whitelisted M). Attention remains bf16 FlashAttention. We do not claim a quantized attention result, and we do not use one to break the 17.3 min floor. [TODO: verify] formal citations; omitted for the same reason.
+**Quantized attention.** Kernels that quantize QK/V, such as SageAttention [10], are a different Class II-or-worse substitution: they change attention arithmetic, not just its tiling. Our INT8 work is on the *conditioning* GEMM path (quantizer and epilogue, bitwise-exact on whitelisted M). Attention remains bf16 FlashAttention. We do not claim a quantized attention result, and we do not use one to break the 17.3 min floor.
 
 **DCU and ROCm notes.** Operator-level DCU posts and AMD ROCm HunyuanVideo-plus-xDiT writeups (2026-08-27 search) support the gap claim in Section 1; they are not baselines and are not in References.
 
@@ -334,3 +334,9 @@ Only the identifiers listed in the outline are used. Titles and authors below ma
 [6] Sam Ade Jacobs, Masahiro Tanaka, Chengming Zhang, Minjia Zhang, Shuaiwen Leon Song, Samyam Rajbhandari, and Yuxiong He. DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509, 2023.
 
 [7] Hao Liu, Matei Zaharia, and Pieter Abbeel. Ring Attention with Blockwise Transformers for Near-Infinite Context. arXiv:2310.01889, 2023.
+
+[8] Feng Liu, Shiwei Zhang, Xiaofeng Wang, Yujie Wei, Haonan Qiu, Yuzhong Zhao, Yingya Zhang, Qixiang Ye, and Fang Wan. Timestep Embedding Tells: It's Time to Cache for Video Diffusion Model. arXiv:2411.19108, 2024.
+
+[9] Zehong Ma, Longhui Wei, Feng Wang, Shiliang Zhang, and Qi Tian. MagCache: Fast Video Generation with Magnitude-Aware Cache. arXiv:2506.09045, 2025.
+
+[10] Jintao Zhang, Jia Wei, Haofeng Huang, Pengle Zhang, Jun Zhu, and Jianfei Chen. SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367, 2024.

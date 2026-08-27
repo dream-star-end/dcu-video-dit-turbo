@@ -47,4 +47,5 @@ long-sequence FlashAttention forward port.
 - [x] 论文全文初稿(paper/draft.md,署名 dengxuan)
 - [x] LICENSE(Apache-2.0 + flash 目录 BSD-3)
 - [x] GitHub 仓库创建与推送
-- [ ] 论文 [TODO: verify] 清单消项、LaTeX 化、arXiv 投稿
+- [x] 论文 TODO 清单消项(引用经 arXiv 官方页核对)
+- [ ] LaTeX 化、arXiv 投稿
