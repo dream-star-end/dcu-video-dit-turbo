@@ -45,7 +45,7 @@ Audio-Video Diffusion Transformer on Dual Hygon DCUs**
 ## 硬前提(发布前必须确认)
 
 - [ ] MiniMax H3 模型许可允许发表第三方 benchmark(不重分发权重,通常没问题,需查条款)
-- [ ] SCNet 平台条款允许公开节点规格与性能数据
+- [ ] 算力平台服务条款允许公开节点规格与性能数据
 - [ ] flash fork 保留 BSD-3 版权声明(已确认上游 Tri Dao BSD-3)
 - [ ] 署名与单位(需用户提供)
 - [ ] 敏感信息清洗:节点主机名/端口/token/内部路径全部脱敏
