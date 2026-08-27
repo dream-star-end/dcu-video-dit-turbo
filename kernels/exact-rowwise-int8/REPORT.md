@@ -4,7 +4,7 @@
 
 GO for a controlled launcher A/B. The independent DSO passed bitwise q and
 FP32-scale gates and projects 6.755 seconds saved over 50 blocks x 20 steps.
-The running service and installed comfy-kitchen package were not modified.
+The running service and the installed serving-stack package were not modified.
 
 ## Correctness
 

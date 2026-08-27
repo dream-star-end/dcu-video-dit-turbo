@@ -1,35 +1,35 @@
-# 1344×768 高清战役(2026-08-27)
+# 1344×768 high-resolution campaign notes (2026-08-27)
 
-## 结论(实测,2×gfx936 BW,20 步,双卡 SP)
+Working notes behind Section 5.2 of the technical report. All numbers were measured on 2×gfx936 (64 GB), 20 steps, dual-card Ulysses sequence parallelism.
 
-| 时长 | 每步 | 采样 | 端到端(热) | 旧路径 |
+## Measured results
+
+| Duration | Per step | Sampling | End-to-end (hot) | Prior path |
 | --- | --- | --- | --- | --- |
-| 5s (37747 tok) | 10.3 s/it | ~206 s | ~4.1 min | 11.06 s/it |
-| 10s (73423 tok) | 31.2 s/it | ~624 s | ~11.5 min | flash 拒收,小时级 |
-| 15s (109099 tok) | 65.3 s/it | 1306 s | 23m58s 实测(冷),~22.5 min 热 | 470 s/it ≈ 2.6h |
+| 5 s (37747 tok) | 10.3 s/it | ~206 s | ~4.1 min | 11.06 s/it |
+| 10 s (73423 tok) | 31.2 s/it | ~624 s | ~11.5 min | FlashAttention refused; hours |
+| 15 s (109099 tok) | 65.3 s/it | 1306 s | 23 min 58 s measured (cold), ~22.5 min hot | 470 s/it ≈ 2.6 h |
 
-15s 完整成片已验证:`t2v_15s_20step_00001_.mp4`,15.084 s,1344×768,H.264+AAC,362 帧。
+A full 15-second render was verified end-to-end: 15.084 s, 1344×768, H.264 + AAC, 362 frames.
 
-## 根因与修法
+## Root causes and fixes
 
-两个都是保守软件白名单,不是内核物理极限:
+Both bottlenecks were conservative software whitelists, not kernel physical limits:
 
-1. **FlashAttention 门禁 `seq ≤ 50000`**(launcher 标准布局判断)。内核在 109099 序列上数值健康:无 NaN,采样最大误差 8.3e-5,低于已审计 23638 基线的 1.9e-4(纯 bf16 舍入)。验证脚本:节点 `/root/h3-kernel-campaign/validate_flash_longseq.py`。放宽到 131072 → v13 候选。
-2. **INT8 M 白名单 `{11819,12055,12280}`** 只含 608×352 形状。高清 M:5s=18873/18874,10s=36711/36712,15s=54549/54550。全部经 `validate_conditioning_int8_shapes_*.py` 逐位验证(quantizer/epilogue 0 mismatch)后加白 → v14 候选。
+1. **FlashAttention gate `seq ≤ 50000`** (standard-layout admission test in the launcher). The kernel is numerically healthy at 109099 tokens: no NaNs, sampled max error 8.3e-5, below the audited 23638-token baseline of 1.9e-4 (pure bf16 rounding). Validation script: [`validation/validate_flash_longseq.py`](../validation/validate_flash_longseq.py). The cap was raised to 131072 in the v13 candidate launcher.
+2. **INT8 M whitelist `{11819, 12055, 12280}`** only covered 608×352 shapes. High-resolution M values: 5 s = 18873/18874, 10 s = 36711/36712, 15 s = 54549/54550. All were bitwise-validated (quantizer/epilogue 0 mismatch) by the [`validation/validate_conditioning_int8_shapes_*.py`](../validation/) scripts before whitelisting in the v14 candidate: [`launcher/benchmark_launcher_v14_hires_int8_candidate.py`](../launcher/benchmark_launcher_v14_hires_int8_candidate.py).
 
-候选文件(未覆盖已审计 v12,其 sha 不变):
-`/root/h3-kernel-campaign/conditioning_sp_candidate/benchmark_launcher_v14_hires_int8_candidate.py`
-启动时 `H3_SP_LAUNCHER` 指向 v14,其余 env 与 v12 相同。
+Candidate launchers are separate files; the previously audited launcher is never edited in place, so its audit hash stays valid and fallback remains available. To use v14, point the launcher env var (`H3_SP_LAUNCHER`) at it and keep the rest of the environment unchanged.
 
-## 必踩坑
+## Pitfalls
 
-- **15s 高清 VAE 解码 OOM**:20 步采样完成后 362 帧 1344×768 解码碎片化 OOM(4.18GB 分配失败/64GB)。修法:启动 env 加 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`,复跑通过。高清 15s 必须带此项。
-- 10s 的精确 M 值日志会被 reason 级去重吞掉;新 worker 重启后先跑目标时长,首条 `quantizer fallback reason=M` 即精确值。
+- **15 s high-resolution VAE-decode OOM**: after 20-step sampling completes, decoding 362 frames at 1344×768 fails with a fragmented 4.18 GB allocation (out of 64 GB). Fix: add `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to the worker environment. Mandatory for 15 s at this resolution.
+- The exact refused M values for 10 s get swallowed by reason-level log de-duplication. On a freshly started worker, run the target duration first; the first `quantizer fallback reason=M` line carries the exact value to whitelist.
 
-## 15s 压 10 分钟的物理账(2 卡,不降质)
+## The physics of a 10-minute 15-second target (2 cards, no quality loss)
 
-单次 flash 前向 @109k = 0.994 s/卡,每步 50 块 ≈ 52 s 纯注意力;20 步纯注意力 ≈ 17.3 min > 10 min。**2 卡稠密注意力 + 20 步在物理上进不了 10 分钟**,与实现无关。可选路线:8 卡 SP(估 ~7-8 min,需扩 SP 与通信验证);减步数/蒸馏或稀疏注意力(有损,需质量门重新评估)。4 卡估 ~13 min,仍超。
+One FlashAttention forward at 109k tokens costs 0.994 s per card; ~50 invocations per step ≈ 52 s of pure attention; 20 steps ≈ 17.3 min > 10 min. **Dense attention at 20 steps cannot fit into 10 minutes on two cards**, independent of implementation. Options: 8-card sequence parallelism (estimated ~7–8 min, requires extending SP and validating communication); fewer steps / distillation / sparse attention (lossy, requires re-running the quality gates). A 4-card estimate is ~13 min, still over.
 
-## 质量声明口径
+## Quality claim discipline
 
-flash 长序列 = 同一 bf16 内核,误差 ≤ 已审计基线;INT8 扩白 = 逐位精确。质量口径与既有生产路径完全一致(同 seed 对单卡非逐位,媒体门照过),不引入新损失。
+Long-sequence FlashAttention = the same bf16 kernel with error ≤ the audited baseline; the INT8 whitelist extension = bitwise-exact. The quality story is identical to the existing production path (same-seed vs single-card is not bitwise; media gates still apply); no new loss is introduced.

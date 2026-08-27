@@ -46,7 +46,7 @@
 - `launcher/` — 门控启动层(形状白名单、审计哈希校验、自动回退、双卡 Ulysses 序列并行协调)。
 - `validation/` — INT8 形状逐位验证与 FlashAttention 长序列数值验证。
 - `benchmarks/` — 上述表格所用的基准启动器与微基准。
-- `docs/` — 优化战役记录与质量门定义。
+- `docs/` — 优化过程记录与质量门定义。
 - `paper/` — 技术报告(Markdown 草稿与 arXiv LaTeX 源码)。
 - `examples/` — 上方示例视频。
 

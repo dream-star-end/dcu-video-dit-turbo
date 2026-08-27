@@ -1,6 +1,6 @@
 # gfx936 exact rowwise INT8 quantizer experiment
 
-Research question: can one gfx936 HIP kernel reproduce comfy-kitchen eager BF16
+Research question: can one gfx936 HIP kernel reproduce the deployed serving stack's eager BF16
 rowwise INT8 quantization bitwise while saving more than one second over the four
 quantization calls in 50 blocks x 20 diffusion steps?
 
